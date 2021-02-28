@@ -1,0 +1,8 @@
+{
+  "domain": "testla_gateway",
+  "name": "Tesla Gateway",
+  "documentation": "",
+  "dependencies": [],
+  "codeowners": [],
+  "requirements": []
+}
