@@ -70,7 +70,7 @@ def async_setup(hass, config):
             "x-tesla-user-agent": "TeslaApp/3.10.9-433/adff2e065/android/10",
             "X-Requested-With": "com.teslamotors.tesla",
         }
-        
+
         verifier_bytes = os.urandom(86)
         code_verifier = base64.urlsafe_b64encode(verifier_bytes).rstrip(b"=")
         code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier).digest()).rstrip(b"=").decode("utf-8")
@@ -121,7 +121,7 @@ def async_setup(hass, config):
                 "identity": conf_user,
                 "credential": conf_password,
             }
-            
+
             _LOGGER.debug('Step 2: POST %s\nparams: %s\nbody: %s', authorize_url, params, body)
             for attempt in range(step_max_attempts):
                 with async_timeout.timeout(DEFAULT_TIMEOUT, loop=hass.loop):
@@ -149,7 +149,7 @@ def async_setup(hass, config):
             is_mfa = True if response.status == 200 and "/mfa/verify" in returned_text else False
             if is_mfa:
                 raise ValueError('Multi-factor authentication enabled for the account and not supported')
-            
+
             # Step 3: Exchange authorization code for bearer token
             code = parse_qs(response.headers["location"])[callback_url + '?code']
 
@@ -180,9 +180,9 @@ def async_setup(hass, config):
 
         except aiohttp.ClientError:
             _LOGGER.error('Client error %s.', response.url)
-        
+
         return None
-    
+
     @asyncio.coroutine
     def SSO_refresh_token():
         token_oauth2_url = tesla_auth_url + '/oauth2/v3/token'
@@ -234,7 +234,7 @@ def async_setup(hass, config):
 
         except aiohttp.ClientError:
             _LOGGER.error('Client error %s.', response.url)
-        
+
         return None
 
     @asyncio.coroutine
@@ -264,7 +264,7 @@ def async_setup(hass, config):
 
         except aiohttp.ClientError:
             _LOGGER.error('Client error %s.', response.url)
-        
+
         return False
 
     @asyncio.coroutine
@@ -297,7 +297,7 @@ def async_setup(hass, config):
 
         except aiohttp.ClientError:
             _LOGGER.error('Client error %s.', response.url)
-        
+
         return None
 
     @asyncio.coroutine
@@ -308,7 +308,7 @@ def async_setup(hass, config):
             'Authorization': 'Bearer ' + owner_token
             }
         body = {
-            'default_real_mode': service_data['real_mode'],
+            'default_real_mode':service_data['real_mode'],
             'backup_reserve_percent':int(service_data['backup_reserve_percent'])
             }
         try:        
@@ -342,7 +342,7 @@ def async_setup(hass, config):
             return None
         owner_token = yield from OWNER_get_token(access_token)
         return owner_token
- 
+
     @asyncio.coroutine
     def async_set_operation(service):
         owner_token = yield from get_owner_api_token()
@@ -353,5 +353,48 @@ def async_setup(hass, config):
             yield from OWNER_revoke(owner_token)
 
     hass.services.async_register(DOMAIN, 'set_operation', async_set_operation)
+
+    @asyncio.coroutine
+    def set_reserve(owner_token,energy_site_id,service_data):
+        operation_url = tesla_base_url + '/api/1/energy_sites/{}/backup'.format(energy_site_id)
+        headers = {
+            'Content-type': 'application/json',
+            'Authorization': 'Bearer ' + owner_token
+            }
+        body = {
+            'backup_reserve_percent':int(service_data['backup_reserve_percent'])
+            }
+        _LOGGER.debug(body)
+
+        try:
+            with async_timeout.timeout(DEFAULT_TIMEOUT, loop=hass.loop):
+                response = yield from websession.post(operation_url,
+                    json=body,
+                    headers=headers,
+                    raise_for_status=False)
+
+            if response.status != 200:
+                returned_text = yield from response.text()
+                _LOGGER.warning('Error %d on call %s:\n%s', response.status, response.url, returned_text)
+            else:
+                returned_json = yield from response.json()
+                _LOGGER.debug('set reserve successful, response: %s', returned_json)
+
+        except asyncio.TimeoutError:
+            _LOGGER.warning('Timeout call %s.', response.url)
+
+        except aiohttp.ClientError:
+            _LOGGER.error('Client error %s.', response.url)
+
+    @asyncio.coroutine
+    def async_set_reserve(service):
+        owner_token = yield from get_owner_api_token()
+        if owner_token:
+            energy_site_id = yield from get_energy_site_id(owner_token)
+            if energy_site_id:
+                yield from set_reserve(owner_token, energy_site_id, service.data)
+            yield from OWNER_revoke(owner_token)
+
+    hass.services.async_register(DOMAIN, 'set_reserve', async_set_reserve)
 
     return True
